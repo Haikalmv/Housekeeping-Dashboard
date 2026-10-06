@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a6ea8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Housekeeping</title>
+<style>
+:root{--hdr:#0a6ea8;--bg:#f3f5f7;--ink:#1c2a33;--mut:#5d6d78;--card:#fff;
+--clean:#c8e6a0;--dirty:#f6a9a9;--dnr:#a8e3dc;--house:#9fdc9f;--inspect:#d9b8ec;--repair:#d8cfa6;--touch:#f7e08a}
+@media(prefers-color-scheme:dark){:root{--bg:#141a1f;--ink:#e8eef2;--mut:#93a3ad;--card:#1e262c}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--hdr);color:#fff;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;position:sticky;top:0;z-index:5}
+.top{display:flex;align-items:center;justify-content:space-between}
+.top h1{font-size:19px;margin:0;font-weight:650}
+.date{font-size:13px;opacity:.9}
+.icon{background:rgba(255,255,255,.18);border:0;color:#fff;border-radius:8px;padding:7px 11px;font-size:14px}
+.search{width:100%;margin:10px 0 8px;padding:10px 12px;border:0;border-radius:8px;font-size:16px;background:#fff;color:#1c2a33}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.chip{flex:none;border:2px solid transparent;border-radius:999px;padding:5px 11px;font-size:14px;background:rgba(255,255,255,.16);color:#fff}
+.chip b{margin-left:5px}
+.chip.on{background:#fff;color:#0a4f78}
+main{padding:10px 12px calc(30px + env(safe-area-inset-bottom,0px));max-width:720px;margin:auto}
+.grp{margin-bottom:14px}
+.gh{display:flex;justify-content:space-between;align-items:center;background:#4a5459;color:#fff;border-radius:8px;padding:9px 12px;font-weight:600;width:100%;border:0;font-size:16px}
+.gh span{font-weight:400;font-size:13px;opacity:.85}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.tile{border:0;border-radius:8px;padding:14px 6px 10px;font-size:22px;font-weight:600;color:#1c2a33;position:relative;text-align:center}
+.tile small{display:block;font-size:12px;font-weight:500;margin-top:2px;opacity:.75}
+.tile i{position:absolute;top:6px;right:8px;font-style:normal;font-size:12px}
+.s-clean{background:var(--clean)}.s-dirty{background:var(--dirty)}.s-dnr{background:var(--dnr)}
+.s-house{background:var(--house)}.s-inspect{background:var(--inspect)}.s-repair{background:var(--repair)}.s-touch{background:var(--touch)}
+.empty{text-align:center;color:var(--mut);padding:40px 16px}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:10;align-items:flex-end}
+.sheet-bg.open{display:flex}
+.sheet{background:var(--card);width:100%;max-width:720px;margin:auto;border-radius:16px 16px 0 0;padding:16px 16px calc(18px + env(safe-area-inset-bottom,0px));max-height:88%;overflow:auto}
+.sheet h2{margin:0 0 12px;font-size:20px}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.opt{border:2px solid transparent;border-radius:10px;padding:12px;font-size:16px;text-align:left;color:#1c2a33}
+.opt.cur{border-color:var(--hdr)}
+textarea,input.f{width:100%;margin-top:12px;padding:10px;border-radius:8px;border:1px solid var(--mut);background:var(--bg);color:var(--ink);font:inherit}
+.row{display:flex;gap:8px;margin-top:12px}
+.btn{flex:1;padding:12px;border-radius:10px;border:0;font-size:16px;background:var(--hdr);color:#fff}
+.btn.alt{background:var(--bg);color:var(--ink);border:1px solid var(--mut)}
+.btn.bad{background:#b3261e}
+.set h3{margin:18px 0 6px;font-size:15px}
+.set p{margin:4px 0;color:var(--mut);font-size:13px}
+.tr{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bg)}
+.tr button{border:0;background:none;color:#b3261e;font-size:14px}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #ffb703;outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <div class="top"><div><h1>Housekeeping</h1><div class="date" id="date"></div></div><button class="icon" id="gear">Setup</button></div>
+  <input class="search" id="q" type="search" placeholder="Search room number" inputmode="numeric" aria-label="Search room number">
+  <div class="chips" id="chips"></div>
+</header>
+<main id="main"></main>
+
+<div class="sheet-bg" id="bg"><div class="sheet" id="sheet"></div></div>
+
+<script>
+const STATUS=[["clean","Clean"],["dirty","Dirty"],["dnr","DNR"],["house","House use"],["inspect","Inspect"],["repair","Repair"],["touch","Touch up"]];
+const KEY="hk-board-v1";
+let S=load();
+let filter="all",query="",collapsed={};
+
+function seed(){
+  const mk=(a,b)=>{const r=[];for(let i=a;i<=b;i++)r.push({n:String(i),s:"dirty",note:""});return r};
+  return{types:[{name:"Deluxe",rooms:mk(101,110)},{name:"Premier Suite",rooms:mk(111,117)}]};
+}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.types)return d}catch(e){}return seed()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+const $=id=>document.getElementById(id);
+const label=k=>STATUS.find(s=>s[0]===k)[1];
+const all=()=>S.types.flatMap(t=>t.rooms);
+
+$("date").textContent=new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+
+function render(){
+  const counts={};STATUS.forEach(s=>counts[s[0]]=0);all().forEach(r=>counts[r.s]++);
+  $("chips").innerHTML=`<button class="chip ${filter==="all"?"on":""}" data-f="all">All<b>${all().length}</b></button>`+
+    STATUS.map(([k,l])=>`<button class="chip ${filter===k?"on":""}" data-f="${k}">${l}<b>${counts[k]}</b></button>`).join("");
+  let html="";
+  S.types.forEach((t,ti)=>{
+    const rooms=t.rooms.map((r,ri)=>({r,ri})).filter(({r})=>(filter==="all"||r.s===filter)&&(!query||r.n.toLowerCase().includes(query)));
+    if(!rooms.length)return;
+    const clean=t.rooms.filter(r=>r.s==="clean").length;
+    html+=`<section class="grp"><button class="gh" data-g="${ti}">${esc(t.name)}<span>${clean} of ${t.rooms.length} clean</span></button>`;
+    if(!collapsed[ti])html+=`<div class="grid">`+rooms.map(({r,ri})=>
+      `<button class="tile s-${r.s}" data-t="${ti}" data-r="${ri}">${r.note?"<i>note</i>":""}${esc(r.n)}<small>${label(r.s)}</small></button>`).join("")+`</div>`;
+    html+=`</section>`;
+  });
+  $("main").innerHTML=html||`<div class="empty">${all().length?"No rooms match.":"No rooms yet. Tap Setup to add some."}</div>`;
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+$("q").oninput=e=>{query=e.target.value.trim().toLowerCase();render()};
+$("chips").onclick=e=>{const b=e.target.closest("[data-f]");if(b){filter=b.dataset.f;render()}};
+$("main").onclick=e=>{
+  const g=e.target.closest("[data-g]");if(g){collapsed[g.dataset.g]=!collapsed[g.dataset.g];render();return}
+  const t=e.target.closest("[data-t]");if(t)openRoom(+t.dataset.t,+t.dataset.r);
+};
+
+function open(html){$("sheet").innerHTML=html;$("bg").classList.add("open")}
+function close(){$("bg").classList.remove("open")}
+$("bg").onclick=e=>{if(e.target.id==="bg")close()};
+
+function openRoom(ti,ri){
+  const r=S.types[ti].rooms[ri];
+  open(`<h2>Room ${esc(r.n)}</h2><div class="opts">`+STATUS.map(([k,l])=>
+    `<button class="opt s-${k} ${r.s===k?"cur":""}" data-s="${k}">${l}</button>`).join("")+
+    `</div><textarea id="note" rows="2" placeholder="Remark (optional)">${esc(r.note)}</textarea>
+    <div class="row"><button class="btn alt" id="cancel">Cancel</button><button class="btn" id="saveNote">Save remark</button></div>`);
+  $("sheet").onclick=e=>{
+    const o=e.target.closest("[data-s]");
+    if(o){r.s=o.dataset.s;r.note=$("note").value.trim();save();close();render()}
+    if(e.target.id==="cancel")close();
+    if(e.target.id==="saveNote"){r.note=$("note").value.trim();save();close();render()}
+  };
+}
+
+$("gear").onclick=openSetup;
+function openSetup(){
+  open(`<div class="set"><h2>Setup</h2>
+  <h3>Room types</h3>
+  ${S.types.map((t,i)=>`<div class="tr"><span>${esc(t.name)} (${t.rooms.length} rooms)</span><button data-del="${i}">Delete</button></div>`).join("")||"<p>None yet.</p>"}
+  <h3>Add rooms</h3>
+  <input class="f" id="tn" placeholder="Type name, e.g. Cabana">
+  <div class="row"><input class="f" id="fr" inputmode="numeric" placeholder="From, e.g. 201" style="margin-top:0"><input class="f" id="to" inputmode="numeric" placeholder="To, e.g. 208" style="margin-top:0"></div>
+  <div class="row"><button class="btn" id="add">Add rooms</button></div>
+  <h3>Daily reset</h3><p>Mark every room dirty to start a new day.</p>
+  <div class="row"><button class="btn alt" id="alld">Set all to Dirty</button></div>
+  <h3>Backup</h3><p>Copy your data to keep it safe, or paste it to restore.</p>
+  <textarea id="bk" rows="3"></textarea>
+  <div class="row"><button class="btn alt" id="exp">Show backup</button><button class="btn alt" id="imp">Restore</button></div>
+  <div class="row"><button class="btn" id="done">Done</button></div></div>`);
+  $("sheet").onclick=e=>{
+    const id=e.target.id;
+    if(e.target.dataset.del!==undefined){const i=+e.target.dataset.del;if(confirm("Delete "+S.types[i].name+" and its rooms?")){S.types.splice(i,1);save();render();openSetup()}}
+    if(id==="add"){
+      const name=$("tn").value.trim(),a=parseInt($("fr").value),b=parseInt($("to").value);
+      if(!name||isNaN(a)||isNaN(b)||b<a||b-a>200){alert("Enter a type name and a valid range, such as 201 to 208.");return}
+      const rooms=[];for(let i=a;i<=b;i++)rooms.push({n:String(i),s:"dirty",note:""});
+      const ex=S.types.find(t=>t.name.toLowerCase()===name.toLowerCase());
+      if(ex)ex.rooms.push(...rooms);else S.types.push({name,rooms});
+      save();render();openSetup();
+    }
+    if(id==="alld"){if(confirm("Set every room to Dirty?")){all().forEach(r=>r.s="dirty");save();render();close()}}
+    if(id==="exp"){$("bk").value=JSON.stringify(S);$("bk").select()}
+    if(id==="imp"){try{const d=JSON.parse($("bk").value);if(!d.types)throw 0;S=d;save();render();close()}catch(x){alert("That backup text isn't valid.")}}
+    if(id==="done")close();
+  };
+}
+render();
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}
+</script>
+</body>
+</html>
